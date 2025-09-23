@@ -1255,7 +1255,7 @@
         }
 
         function performSave() {
-            if (!db || images.length === 0) return;
+            if (!db) return;
             
             const projectData = {
                 id: 'autosave',
