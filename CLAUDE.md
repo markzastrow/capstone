@@ -58,8 +58,9 @@ This is a static HTML application - no build, test, or lint commands are needed:
 
 **Persistence**
 - `autoSave()` - Triggers IndexedDB save with ArrayBuffer data
-- `performSave()` - Actual write operation
+- `performSave()` - Actual write operation, saves projects with or without images
 - `loadAutoSavedProject()` - Reconstructs File objects from stored ArrayBuffer
+- Auto-saves text-only projects (no images required for persistence)
 
 ## Development Guidelines
 
@@ -80,7 +81,7 @@ This is a static HTML application - no build, test, or lint commands are needed:
 - Text references (`_01`, `_02`) highlight correctly
 - Reordering updates references properly
 - Export generates correct ZIP
-- Auto-save persists across browser refresh
+- Auto-save persists across browser refresh (including text-only projects)
 - Lightbox navigation functions
 
 ### Current Status
