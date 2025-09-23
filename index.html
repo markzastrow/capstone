@@ -88,6 +88,7 @@
             min-width: 14ch;
             max-width: 22ch;
             background: white;
+            text-align: center;
             transition: all 150ms ease-out;
             color: var(--gray-900);
         }
@@ -1328,7 +1329,7 @@
 
         function autoResizeInput(input) {
             // Calculate width based on content length plus some padding
-            const contentWidth = Math.max(input.value.length + 3, 14);
+            const contentWidth = Math.max(input.value.length + 5, 14);
             input.style.width = Math.min(contentWidth, 22) + 'ch';
         }
 
