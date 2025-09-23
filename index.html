@@ -1321,7 +1321,7 @@
                 const transaction = db.transaction(['projects'], 'readwrite');
                 const objectStore = transaction.objectStore('projects');
                 objectStore.delete('autosave');
-                alert("Saved data cleared. If you want to start a new project, close the Capstone browser tab now. If you didn't mean to clear your data, close this dialog box and simply save the project again by pressing Cmd+S or waiting 3 seconds for auto-save.");
+                alert("Your saved data has been cleared. If you want to start a new project, close or refresh the CAPSTONE browser tab now. If you didn't mean to clear your saved data, close this dialog box and save the project again by pressing Ctrl/Cmd+S, or wait 3 seconds for auto-save.");
             }
         }
 
