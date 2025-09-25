@@ -527,7 +527,7 @@
     <div class="header">
         <div class="logo">CAPSTONE</div>
         <input type="text" class="story-code-input" placeholder="Story code" value="">
-        <input type="file" class="file-input" multiple accept="image/*" onchange="handleFileSelect(event)">
+        <input type="file" class="file-input" multiple accept="image/*,.tif,.tiff" onchange="handleFileSelect(event)">
         <button class="btn btn-secondary" onclick="document.querySelector('.file-input').click()">Add images</button>
         <button class="btn btn-primary" onclick="exportProject()">Export</button>
         <button class="btn btn-danger" onclick="clearAutoSave()">Clear saved data</button>
@@ -560,6 +560,9 @@
         <button class="lightbox-nav lightbox-next" id="lightboxNext">›</button>
         <div class="lightbox-counter" id="lightboxCounter">1 / 1</div>
     </div>
+
+    <!-- UTIF.js library for TIFF decoding -->
+    <script src="https://cdn.jsdelivr.net/npm/utif@3.1.0/UTIF.js"></script>
 
     <script>
         let images = [];
@@ -648,7 +651,12 @@
                     const indicator = document.querySelector('.drop-indicator');
                     if (indicator) indicator.remove();
                     
-                    const files = Array.from(e.dataTransfer.files).filter(file => file.type.startsWith('image/'));
+                    const files = Array.from(e.dataTransfer.files).filter(file =>
+                        file.type.startsWith('image/') ||
+                        file.type === 'image/tiff' ||
+                        file.name.toLowerCase().endsWith('.tif') ||
+                        file.name.toLowerCase().endsWith('.tiff')
+                    );
                     if (files.length > 0) {
                         if (images.length === 0) {
                             addImages(files);
@@ -772,44 +780,128 @@
                 imageObj.fileData = e.target.result; // ArrayBuffer
                 imageObj.fileName = file.name;
                 imageObj.fileType = file.type;
-                
-                // Create thumbnail from the same data
-                const img = new Image();
-                img.onload = () => {
-                    // Create canvas for 60x60 thumbnail with proper cropping
-                    const canvas = document.createElement('canvas');
-                    const ctx = canvas.getContext('2d');
-                    canvas.width = 60;
-                    canvas.height = 60;
-                    
-                    // Calculate crop area to center the image
-                    const aspectRatio = img.width / img.height;
-                    let sourceX = 0, sourceY = 0, sourceWidth = img.width, sourceHeight = img.height;
-                    
-                    if (aspectRatio > 1) {
-                        // Wider than tall - crop sides
-                        sourceWidth = img.height;
-                        sourceX = (img.width - sourceWidth) / 2;
-                    } else {
-                        // Taller than wide - crop top/bottom
-                        sourceHeight = img.width;
-                        sourceY = (img.height - sourceHeight) / 2;
+
+                // Check if this is a TIFF file
+                const isTiff = file.type === 'image/tiff' ||
+                              file.name.toLowerCase().endsWith('.tif') ||
+                              file.name.toLowerCase().endsWith('.tiff');
+
+                if (isTiff && typeof UTIF !== 'undefined') {
+                    try {
+                        // Decode TIFF using UTIF.js
+                        const tiffData = new Uint8Array(e.target.result);
+                        const ifds = UTIF.decode(tiffData);
+                        UTIF.decodeImage(tiffData, ifds[0]);
+                        const rgba = UTIF.toRGBA8(ifds[0]);
+
+                        // Create canvas and draw decoded TIFF data
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = 60;
+                        canvas.height = 60;
+
+                        // Create temporary canvas with full image
+                        const tempCanvas = document.createElement('canvas');
+                        const tempCtx = tempCanvas.getContext('2d');
+                        tempCanvas.width = ifds[0].width;
+                        tempCanvas.height = ifds[0].height;
+
+                        // Draw RGBA data to temporary canvas
+                        const imageData = tempCtx.createImageData(ifds[0].width, ifds[0].height);
+                        imageData.data.set(rgba);
+                        tempCtx.putImageData(imageData, 0, 0);
+
+                        // Calculate crop area to center the image
+                        const aspectRatio = ifds[0].width / ifds[0].height;
+                        let sourceX = 0, sourceY = 0, sourceWidth = ifds[0].width, sourceHeight = ifds[0].height;
+
+                        if (aspectRatio > 1) {
+                            // Wider than tall - crop sides
+                            sourceWidth = ifds[0].height;
+                            sourceX = (ifds[0].width - sourceWidth) / 2;
+                        } else {
+                            // Taller than wide - crop top/bottom
+                            sourceHeight = ifds[0].width;
+                            sourceY = (ifds[0].height - sourceHeight) / 2;
+                        }
+
+                        // Draw cropped image to thumbnail canvas
+                        ctx.drawImage(tempCanvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, 60, 60);
+
+                        // Convert to optimized data URL
+                        imageObj.thumbnailUrl = canvas.toDataURL('image/jpeg', 0.8);
+                        renderImageList();
+
+                        // Auto-save immediately after thumbnail is ready
+                        autoSave();
+
+                    } catch (error) {
+                        console.error('TIFF decoding error:', error);
+                        // Fall back to standard image processing (will likely fail but gracefully)
+                        processStandardImage();
                     }
-                    
-                    // Draw cropped image
-                    ctx.drawImage(img, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, 60, 60);
-                    
-                    // Convert to optimized data URL
-                    imageObj.thumbnailUrl = canvas.toDataURL('image/jpeg', 0.8);
-                    renderImageList();
-                    
-                    // Auto-save immediately after thumbnail is ready
-                    autoSave();
-                };
-                
-                // Create blob URL for the image element
-                const blob = new Blob([e.target.result], {type: file.type});
-                img.src = URL.createObjectURL(blob);
+                } else {
+                    // Standard image processing for non-TIFF files
+                    processStandardImage();
+                }
+
+                function processStandardImage() {
+                    const img = new Image();
+                    img.onload = () => {
+                        // Create canvas for 60x60 thumbnail with proper cropping
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = 60;
+                        canvas.height = 60;
+
+                        // Calculate crop area to center the image
+                        const aspectRatio = img.width / img.height;
+                        let sourceX = 0, sourceY = 0, sourceWidth = img.width, sourceHeight = img.height;
+
+                        if (aspectRatio > 1) {
+                            // Wider than tall - crop sides
+                            sourceWidth = img.height;
+                            sourceX = (img.width - sourceWidth) / 2;
+                        } else {
+                            // Taller than wide - crop top/bottom
+                            sourceHeight = img.width;
+                            sourceY = (img.height - sourceHeight) / 2;
+                        }
+
+                        // Draw cropped image
+                        ctx.drawImage(img, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, 60, 60);
+
+                        // Convert to optimized data URL
+                        imageObj.thumbnailUrl = canvas.toDataURL('image/jpeg', 0.8);
+                        renderImageList();
+
+                        // Auto-save immediately after thumbnail is ready
+                        autoSave();
+                    };
+
+                    img.onerror = () => {
+                        console.error('Failed to load image:', file.name);
+                        // Create a placeholder thumbnail
+                        const canvas = document.createElement('canvas');
+                        const ctx = canvas.getContext('2d');
+                        canvas.width = 60;
+                        canvas.height = 60;
+                        ctx.fillStyle = '#f0f0f0';
+                        ctx.fillRect(0, 0, 60, 60);
+                        ctx.fillStyle = '#999';
+                        ctx.font = '12px Arial';
+                        ctx.textAlign = 'center';
+                        ctx.fillText('?', 30, 35);
+
+                        imageObj.thumbnailUrl = canvas.toDataURL('image/jpeg', 0.8);
+                        renderImageList();
+                        autoSave();
+                    };
+
+                    // Create blob URL for the image element
+                    const blob = new Blob([e.target.result], {type: file.type});
+                    img.src = URL.createObjectURL(blob);
+                }
             };
             reader.readAsArrayBuffer(file);
         }
@@ -1066,9 +1158,45 @@
 
             const lightboxImage = document.getElementById('lightboxImage');
             const lightboxCounter = document.getElementById('lightboxCounter');
-            
-            const imageUrl = URL.createObjectURL(image.file);
-            lightboxImage.src = imageUrl;
+
+            // Check if this is a TIFF file
+            const isTiff = image.fileType === 'image/tiff' ||
+                          image.fileName.toLowerCase().endsWith('.tif') ||
+                          image.fileName.toLowerCase().endsWith('.tiff');
+
+            if (isTiff && typeof UTIF !== 'undefined' && image.fileData) {
+                try {
+                    // Decode TIFF for lightbox display
+                    const tiffData = new Uint8Array(image.fileData);
+                    const ifds = UTIF.decode(tiffData);
+                    UTIF.decodeImage(tiffData, ifds[0]);
+                    const rgba = UTIF.toRGBA8(ifds[0]);
+
+                    // Create canvas for full-resolution display
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = ifds[0].width;
+                    canvas.height = ifds[0].height;
+
+                    // Draw RGBA data to canvas
+                    const imageData = ctx.createImageData(ifds[0].width, ifds[0].height);
+                    imageData.data.set(rgba);
+                    ctx.putImageData(imageData, 0, 0);
+
+                    // Convert canvas to data URL and set as image source
+                    lightboxImage.src = canvas.toDataURL('image/jpeg', 0.9);
+                } catch (error) {
+                    console.error('TIFF decoding error in lightbox:', error);
+                    // Fall back to standard URL (will likely not display properly)
+                    const imageUrl = URL.createObjectURL(image.file);
+                    lightboxImage.src = imageUrl;
+                }
+            } else {
+                // Standard image display for non-TIFF files
+                const imageUrl = URL.createObjectURL(image.file);
+                lightboxImage.src = imageUrl;
+            }
+
             lightboxCounter.textContent = `${currentLightboxIndex + 1} / ${images.length}`;
         }
 
@@ -1321,7 +1449,7 @@
                 const transaction = db.transaction(['projects'], 'readwrite');
                 const objectStore = transaction.objectStore('projects');
                 objectStore.delete('autosave');
-                alert("Your saved data has been cleared. If you want to start a new project, close or refresh the CAPSTONE browser tab now. If you didn't mean to clear your saved data, close this dialog box and save the project again by pressing Ctrl/Cmd+S, or wait 3 seconds for auto-save.");
+                alert("Your saved data has been cleared. If you want to start a new project, refresh the CAPSTONE browser tab now. If you didn't mean to clear your saved data, close this dialog box and save the project again by pressing Ctrl/Cmd+S.");
             }
         }
 
