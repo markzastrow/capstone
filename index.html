@@ -246,7 +246,7 @@
             opacity: 0.6;
             transform: scale(1.02);
             box-shadow: var(--shadow-lg);
-            z-index: 1000;
+            z-index: 100;
         }
 
         .image-thumbnail {
@@ -330,6 +330,89 @@
         .delete-btn:hover {
             background: #c82333;
             transform: scale(1.05);
+        }
+
+        .edit-suffix-btn {
+            width: 20px;
+            height: 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 5px;
+            transition: all 150ms ease-out;
+            flex-shrink: 0;
+        }
+
+        .edit-suffix-btn:hover {
+            background: #0056b3;
+            transform: scale(1.05);
+        }
+
+        /* Child image hierarchy styles */
+        .child-image {
+            margin-left: 20px;
+            background-color: #f8f9fa;
+            border-left: 3px solid #dee2e6;
+        }
+
+        .child-image:hover {
+            background-color: #e9ecef;
+        }
+
+        .child-indent {
+            width: 2px;
+            background-color: #adb5bd;
+            margin-right: 10px;
+            flex-shrink: 0;
+        }
+
+        /* Drop zone styling for parent-child relationships */
+        .drop-zone-parent {
+            border: 2px dashed #007bff !important;
+            background-color: rgba(0, 123, 255, 0.15) !important;
+            transform: scale(1.02);
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+            transition: all 150ms ease-out;
+        }
+
+
+        @keyframes groupIndicatorFade {
+            0% { opacity: 0; transform: scale(0.5); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Clean drop indicator */
+        .drop-indicator {
+            height: 2px;
+            background: #007bff;
+            margin: 2px 0;
+            border-radius: 1px;
+            transition: all 150ms ease-out;
+        }
+
+        /* Thumbnail highlighting during drag */
+        .image-thumbnail {
+            transition: all 200ms ease-out;
+        }
+
+        .drag-target-highlight .image-thumbnail {
+            box-shadow: 0 0 0 2px #007bff, 0 0 8px rgba(0, 123, 255, 0.4);
+            transform: scale(1.05);
+        }
+
+        .drag-target-pulse .image-thumbnail {
+            animation: thumbnailPulse 1s ease-in-out infinite;
+        }
+
+        @keyframes thumbnailPulse {
+            0%, 100% { transform: scale(1.05); }
+            50% { transform: scale(1.1); }
         }
 
         .editor-container {
@@ -527,7 +610,7 @@
     <div class="header">
         <div class="logo">CAPSTONE</div>
         <input type="text" class="story-code-input" placeholder="Story code" value="">
-        <input type="file" class="file-input" multiple accept="image/*,.tif,.tiff" onchange="handleFileSelect(event)">
+        <input type="file" class="file-input" multiple accept="image/*" onchange="handleFileSelect(event)">
         <button class="btn btn-secondary" onclick="document.querySelector('.file-input').click()">Add images</button>
         <button class="btn btn-primary" onclick="exportProject()">Export</button>
         <button class="btn btn-danger" onclick="clearAutoSave()">Clear saved data</button>
@@ -739,7 +822,9 @@
                 fileType: file.type,
                 fileData: null, // Will be set by createThumbnail
                 position: 0,
-                thumbnailUrl: null
+                thumbnailUrl: null,
+                parentId: null,
+                suffix: ""
             }));
             
             newImages.forEach(img => createThumbnail(img.file, img));
@@ -761,7 +846,9 @@
                     fileType: file.type,
                     fileData: null, // Will be set by createThumbnail
                     position: images.length + 1,
-                    thumbnailUrl: null
+                    thumbnailUrl: null,
+                    parentId: null,
+                    suffix: ""
                 };
                 createThumbnail(file, imageObj);
                 images.push(imageObj);
@@ -909,59 +996,244 @@
         function deleteImage(imageId) {
             const imageToDelete = images.find(img => img.id === imageId);
             if (!imageToDelete) return;
-            
-            const deletedPosition = imageToDelete.position;
-            const editor = document.getElementById('textEditor');
-            const referencePattern = new RegExp(`_${String(deletedPosition).padStart(2, '0')}`, 'g');
-            editor.value = editor.value.replace(referencePattern, '!!');
-            
+
+            // If deleting a parent with children, handle children
+            if (imageToDelete.parentId === null) {
+                const children = getChildImages(imageId);
+                if (children.length > 0) {
+                    const shouldDeleteChildren = confirm(
+                        `This image has ${children.length} child image(s). Delete all children too?\n\n` +
+                        `Click OK to delete all, or Cancel to promote children to parent level.`
+                    );
+
+                    if (shouldDeleteChildren) {
+                        // Delete all children
+                        children.forEach(child => {
+                            images.splice(images.findIndex(img => img.id === child.id), 1);
+                        });
+                    } else {
+                        // Promote children to parent level
+                        children.forEach(child => {
+                            child.parentId = null;
+                            child.suffix = ""; // Clear suffix when promoting
+                        });
+                    }
+                }
+
+                // Handle text references (only for parent images)
+                const deletedPosition = imageToDelete.position;
+                const editor = document.getElementById('textEditor');
+                const referencePattern = new RegExp(`_${String(deletedPosition).padStart(2, '0')}`, 'g');
+                editor.value = editor.value.replace(referencePattern, '!!');
+            }
+
+            // Remove the image
             images.splice(images.findIndex(img => img.id === imageId), 1);
+
             updateFilenames();
             renderImageList();
             updateTextReferencesAfterReorder();
             autoSave();
         }
 
+        function editSuffix(imageId) {
+            const image = images.find(img => img.id === imageId);
+            if (!image) return;
+
+            const currentSuffix = image.suffix || "";
+            // Auto-focus with slight delay
+            setTimeout(() => {
+                const newSuffix = prompt(`Enter suffix for ${image.originalName}:`, currentSuffix);
+
+                if (newSuffix !== null) {
+                // Validate suffix doesn't create duplicate filenames
+                if (!validateSuffix(imageId, newSuffix)) {
+                    alert("This suffix would create a duplicate filename. Please choose a different suffix.");
+                    return;
+                }
+
+                // Capture old reference before changing suffix
+                const oldReference = `_${String(image.position).padStart(2, '0')}${currentSuffix}`;
+
+                image.suffix = newSuffix;
+                updateFilenames();
+                renderImageList();
+
+                // Direct replacement for filename change
+                const newReference = `_${String(image.position).padStart(2, '0')}${newSuffix}`;
+                const editor = document.getElementById('textEditor');
+                editor.value = editor.value.replace(
+                    new RegExp(oldReference.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+                    newReference
+                );
+
+                // Remove edited image from map after direct replacement
+                removeImageFromTextReferences(imageId);
+
+                parseAndUpdateReferences();  // Rebuild map after text change
+                autoSave();
+                }
+            }, 50); // Small delay to ensure proper focus
+        }
+
+        function validateSuffix(imageId, suffix, targetParentId = null) {
+            const image = images.find(img => img.id === imageId);
+            if (!image) return false;
+
+            // If targetParentId is provided, check that family; otherwise use current family
+            let family;
+            if (targetParentId !== null) {
+                // Check the target family the image will join
+                family = getImageFamily(targetParentId);
+            } else {
+                // Check current family
+                family = getImageFamily(imageId);
+            }
+
+            // Check if any other image in the family has the same suffix
+            return !family.some(img => img.id !== imageId && img.suffix === suffix);
+        }
+
+        function createChildRelationship(draggedId, targetId) {
+            const draggedImage = images.find(img => img.id === draggedId);
+            const targetImage = images.find(img => img.id === targetId);
+
+            if (!draggedImage || !targetImage || draggedId === targetId) return;
+
+            // Prevent grandchildren - if target is a child, use its parent instead
+            const actualParentId = targetImage.parentId || targetId;
+            const actualParent = images.find(img => img.id === actualParentId);
+
+            if (!actualParent) return;
+
+            // Get suffix from user with auto-focus
+            setTimeout(() => {
+                const suffix = prompt(`Enter suffix for ${draggedImage.originalName}:`, "");
+                if (suffix === null) return; // User cancelled
+
+                // Validate suffix doesn't create duplicate filenames
+                if (!validateSuffix(draggedId, suffix, actualParentId)) {
+                    alert("This suffix would create a duplicate filename. Please choose a different suffix.");
+                    return;
+                }
+
+                // Update image structure
+                draggedImage.parentId = actualParentId;
+                draggedImage.suffix = suffix;
+
+                // Update filenames (this changes positions)
+                updateFilenames();
+
+                // Let systematic approach handle ALL text updates
+                updateTextReferencesAfterReorder();
+                renderImageList();
+                autoSave();
+            }, 50); // Small delay to ensure proper focus
+        }
+
+        function promoteToParent(childId) {
+            const child = images.find(img => img.id === childId);
+            if (!child || child.parentId === null) return;
+
+            child.parentId = null;
+            child.suffix = "";
+
+            updateFilenames();
+            updateTextReferencesAfterReorder();  // Let systematic approach handle text
+            renderImageList();
+            autoSave();
+        }
+
         function updateFilenames() {
             const storyCode = committedStoryCode;
-            images.forEach((image, index) => {
-                image.position = index + 1;
-                if (storyCode) {
-                    image.filename = `${storyCode}_${String(image.position).padStart(2, '0')}`;
-                } else {
-                    image.filename = `_${String(image.position).padStart(2, '0')}`;
-                }
+            const parentImages = getParentImages();
+
+            parentImages.forEach((parent, index) => {
+                const basePosition = index + 1;
+                const baseName = storyCode ?
+                    `${storyCode}_${String(basePosition).padStart(2, '0')}` :
+                    `_${String(basePosition).padStart(2, '0')}`;
+
+                parent.filename = baseName + parent.suffix;
+                parent.position = basePosition;
+
+                // Handle children
+                const children = getChildImages(parent.id);
+                children.forEach(child => {
+                    child.filename = baseName + child.suffix;
+                    child.position = basePosition; // Same as parent
+                });
             });
         }
 
+        // Helper functions for parent/child hierarchy
+        function getParentImages() {
+            return images.filter(img => img.parentId === null);
+        }
 
+        function getChildImages(parentId) {
+            return images.filter(img => img.parentId === parentId);
+        }
+
+        function getImageFamily(imageId) {
+            const image = images.find(img => img.id === imageId);
+            if (!image) return [];
+
+            if (image.parentId === null) {
+                // This is a parent, return it and all children
+                return [image, ...getChildImages(imageId)];
+            } else {
+                // This is a child, return parent and all siblings
+                return getImageFamily(image.parentId);
+            }
+        }
+
+        function renderImageItem(image, isChild) {
+            const thumbnailSize = isChild ? 45 : 60;
+            const indentClass = isChild ? 'child-image' : '';
+            const thumbnailSrc = image.thumbnailUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjYwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjRjBGMEYwIi8+CjxwYXRoIGQ9Ik0yMCAyMEg0MFY0MEgyMFYyMFoiIGZpbGw9IiNDQ0MiLz4KPC9zdmc+';
+
+            return `
+                <li class="image-item ${indentClass}" draggable="true" data-id="${image.id}" data-is-child="${isChild}">
+                    ${isChild ? '<div class="child-indent"></div>' : ''}
+                    <div class="drag-handle">⋮⋮</div>
+                    <img class="image-thumbnail" src="${thumbnailSrc}" alt="${image.originalName}"
+                         style="width:${thumbnailSize}px;height:${thumbnailSize}px" draggable="false">
+                    <div class="image-info">
+                        <div class="image-filename">${image.filename}</div>
+                        <div class="image-original">${image.originalName}</div>
+                    </div>
+                    <button class="edit-suffix-btn" onclick="editSuffix(${image.id})" title="Edit suffix">✎</button>
+                    <button class="delete-btn" onclick="deleteImage(${image.id})" title="Delete image">×</button>
+                </li>
+            `;
+        }
 
         function renderImageList() {
             const imageList = document.getElementById('imageList');
             const dropZone = document.getElementById('dropZone');
-            
+
             if (images.length === 0) {
                 imageList.innerHTML = '';
                 dropZone.style.display = 'block';
                 return;
             }
-            
+
             dropZone.style.display = 'none';
-            
-            imageList.innerHTML = images.map(image => {
-                const thumbnailSrc = image.thumbnailUrl || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjYwIiBoZWlnaHQ9IjYwIiBmaWxsPSIjRjBGMEYwIi8+CjxwYXRoIGQ9Ik0yMCAyMEg0MFY0MEgyMFYyMFoiIGZpbGw9IiNDQ0MiLz4KPC9zdmc+';
-                return `
-                    <li class="image-item" draggable="true" data-id="${image.id}">
-                        <div class="drag-handle">⋮⋮</div>
-                        <img class="image-thumbnail" src="${thumbnailSrc}" alt="${image.originalName}" draggable="false">
-                        <div class="image-info">
-                            <div class="image-filename">${image.filename}</div>
-                            <div class="image-original">${image.originalName}</div>
-                        </div>
-                        <button class="delete-btn" onclick="deleteImage(${image.id})" title="Delete image">×</button>
-                    </li>
-                `;
-            }).join('');
+
+            const parentImages = getParentImages();
+            let html = '';
+
+            parentImages.forEach(parent => {
+                html += renderImageItem(parent, false); // false = not child
+
+                const children = getChildImages(parent.id);
+                children.forEach(child => {
+                    html += renderImageItem(child, true); // true = is child
+                });
+            });
+
+            imageList.innerHTML = html;
 
             const thumbnails = imageList.querySelectorAll('.image-thumbnail');
             thumbnails.forEach(thumbnail => {
@@ -975,62 +1247,177 @@
 
         function setupImageListDragHandlers() {
             const imageList = document.getElementById('imageList');
-            
+            let draggedOverItem = null;
+            let draggedOverTimer = null;
+
             imageList.addEventListener('dragstart', function(e) {
                 const imageItem = e.target.closest('.image-item');
                 if (!imageItem) return;
-                
+
                 draggedItem = imageItem;
                 imageItem.classList.add('dragging');
                 e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', imageItem.dataset.id);
+
+                // Highlight all potential drop targets (other thumbnails)
+                imageList.querySelectorAll('.image-item').forEach(item => {
+                    if (item !== draggedItem) {
+                        item.classList.add('drag-target-highlight');
+                    }
+                });
             });
-            
+
             imageList.addEventListener('dragover', function(e) {
                 const imageItem = e.target.closest('.image-item');
                 if (!imageItem || imageItem === draggedItem) return;
-                
+
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'move';
-                
+
+                // Clear existing visual feedback
                 const existing = document.querySelector('.drop-indicator');
                 if (existing) existing.remove();
-                
+
+                document.querySelectorAll('.drop-zone-parent, .drag-target-pulse').forEach(el => {
+                    if (el !== imageItem) { // Don't remove classes from current hover target
+                        el.classList.remove('drop-zone-parent', 'drag-target-pulse');
+                    }
+                });
+
+                // Only remove indicator if we're not hovering over the item that has it
+                const indicator = document.querySelector('.group-indicator');
+                if (indicator && !imageItem.classList.contains('drop-zone-parent')) {
+                    indicator.remove();
+                }
+
                 const rect = imageItem.getBoundingClientRect();
                 const mouseY = e.clientY;
                 const itemMiddle = rect.top + rect.height / 2;
-                const indicator = document.createElement('div');
-                indicator.className = 'drop-indicator';
-                
-                if (mouseY < itemMiddle) {
-                    imageItem.parentNode.insertBefore(indicator, imageItem);
-                } else {
-                    const nextSibling = imageItem.nextSibling;
-                    if (nextSibling) {
-                        imageItem.parentNode.insertBefore(indicator, nextSibling);
-                    } else {
-                        imageItem.parentNode.appendChild(indicator);
+
+                // Check if hovering over thumbnail (for parent-child relationship)
+                const thumbnail = imageItem.querySelector('.image-thumbnail');
+                const thumbnailRect = thumbnail.getBoundingClientRect();
+                const hoveringOnThumbnail = e.clientX >= thumbnailRect.left &&
+                                           e.clientX <= thumbnailRect.right &&
+                                           e.clientY >= thumbnailRect.top &&
+                                           e.clientY <= thumbnailRect.bottom;
+
+                if (hoveringOnThumbnail) {
+                    // Immediate pulse animation on hover
+                    imageItem.classList.add('drag-target-pulse');
+
+                    // Require sustained hover before showing grouping indicator
+                    if (draggedOverItem !== imageItem) {
+                        draggedOverItem = imageItem;
+                        clearTimeout(draggedOverTimer);
+                        draggedOverTimer = setTimeout(() => {
+                            if (draggedOverItem === imageItem) {
+                                console.log('Adding drop-zone-parent class to:', imageItem);
+                                imageItem.classList.remove('drag-target-pulse');
+                                imageItem.classList.add('drop-zone-parent');
+
+                                // Add actual DOM element instead of ::after
+                                let indicator = document.querySelector('.group-indicator');
+                                if (!indicator) {
+                                    const rect = imageItem.getBoundingClientRect();
+                                    indicator = document.createElement('div');
+                                    indicator.className = 'group-indicator';
+                                    indicator.innerHTML = '📎';
+                                    indicator.style.cssText = `
+                                        position: fixed;
+                                        top: ${rect.top + 8}px;
+                                        left: ${rect.right - 28}px;
+                                        width: 20px;
+                                        height: 20px;
+                                        background: rgba(0, 123, 255, 0.9);
+                                        color: white;
+                                        font-size: 12px;
+                                        font-weight: bold;
+                                        pointer-events: none;
+                                        z-index: 100000;
+                                        border-radius: 50%;
+                                        display: flex;
+                                        align-items: center;
+                                        justify-content: center;
+                                        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+                                        border: 1px solid rgba(255, 255, 255, 0.3);
+                                        animation: groupIndicatorFade 0.3s ease-out;
+                                        opacity: 0;
+                                    `;
+                                    document.body.appendChild(indicator);
+
+                                    // Trigger animation after element is added
+                                    requestAnimationFrame(() => {
+                                        indicator.style.opacity = '1';
+                                        indicator.style.transform = 'scale(1)';
+                                    });
+                                } else {
+                                    // Update position if indicator already exists
+                                    const rect = imageItem.getBoundingClientRect();
+                                    indicator.style.top = `${rect.top + 8}px`;
+                                    indicator.style.left = `${rect.right - 28}px`;
+                                }
+                                console.log('Element classes:', imageItem.className);
+                            }
+                        }, 400); // 400ms delay for intentional grouping
                     }
+                } else {
+                    // Show clean drop indicator for reordering
+                    const indicator = document.createElement('div');
+                    indicator.className = 'drop-indicator';
+
+                    if (mouseY < itemMiddle) {
+                        imageItem.parentNode.insertBefore(indicator, imageItem);
+                    } else {
+                        const nextSibling = imageItem.nextSibling;
+                        if (nextSibling) {
+                            imageItem.parentNode.insertBefore(indicator, nextSibling);
+                        } else {
+                            imageItem.parentNode.appendChild(indicator);
+                        }
+                    }
+                    draggedOverItem = null;
+                    clearTimeout(draggedOverTimer);
                 }
             });
-            
+
             imageList.addEventListener('drop', function(e) {
-                const imageItem = e.target.closest('.image-item');
-                if (!imageItem || !draggedItem || imageItem === draggedItem) return;
-                
                 e.preventDefault();
-                
+
+                const imageItem = e.target.closest('.image-item');
+                if (!imageItem || !draggedItem || imageItem === draggedItem) {
+                    console.log('Drop failed: invalid target or draggedItem');
+                    return;
+                }
+
                 const draggedId = parseInt(draggedItem.dataset.id);
                 const targetId = parseInt(imageItem.dataset.id);
-                const draggedIndex = images.findIndex(img => img.id === draggedId);
-                const targetIndex = images.findIndex(img => img.id === targetId);
-                
-                const [draggedImage] = images.splice(draggedIndex, 1);
-                images.splice(targetIndex, 0, draggedImage);
-                
-                updateFilenames();
-                renderImageList();
-                updateTextReferencesAfterReorder();
-                autoSave();
+
+                if (isNaN(draggedId) || isNaN(targetId)) {
+                    console.log('Drop failed: invalid IDs', draggedId, targetId);
+                    return;
+                }
+
+                const rect = imageItem.getBoundingClientRect();
+                const mouseY = e.clientY;
+                const itemMiddle = rect.top + rect.height / 2;
+
+                // Check if dropping on thumbnail (parent-child relationship)
+                const thumbnail = imageItem.querySelector('.image-thumbnail');
+                const thumbnailRect = thumbnail.getBoundingClientRect();
+                const droppedOnThumbnail = e.clientX >= thumbnailRect.left &&
+                                          e.clientX <= thumbnailRect.right &&
+                                          e.clientY >= thumbnailRect.top &&
+                                          e.clientY <= thumbnailRect.bottom;
+
+                console.log('Drop operation:', droppedOnThumbnail ? 'grouping' : 'reordering', 'from', draggedId, 'to', targetId);
+
+                if (droppedOnThumbnail) {
+                    createChildRelationship(draggedId, targetId);
+                } else {
+                    // Handle reordering logic
+                    handleImageReorder(draggedId, targetId, mouseY < itemMiddle);
+                }
             });
             
             imageList.addEventListener('dragend', function(e) {
@@ -1038,10 +1425,71 @@
                 if (imageItem) {
                     imageItem.classList.remove('dragging');
                 }
+
+                // Clean up all visual feedback
+                document.querySelectorAll('.drop-zone-parent, .drag-target-highlight, .drag-target-pulse').forEach(el => {
+                    el.classList.remove('drop-zone-parent', 'drag-target-highlight', 'drag-target-pulse');
+                });
+
+                // Remove any group indicators from body
+                const indicator = document.querySelector('.group-indicator');
+                if (indicator) indicator.remove();
+
                 draggedItem = null;
+                draggedOverItem = null;
+                clearTimeout(draggedOverTimer);
+
                 const indicators = document.querySelectorAll('.drop-indicator');
                 indicators.forEach(indicator => indicator.remove());
             });
+        }
+
+        function handleImageReorder(draggedId, targetId, insertBefore) {
+            const draggedImage = images.find(img => img.id === draggedId);
+            const targetImage = images.find(img => img.id === targetId);
+
+            if (!draggedImage || !targetImage) return;
+
+            // Check if child is being promoted (dragged out of parent group)
+            if (draggedImage.parentId !== null && targetImage.parentId === null) {
+                // Child is being dropped at parent level - promote to parent
+                draggedImage.parentId = null;
+                draggedImage.suffix = "";  // Clear suffix when promoting to parent
+            }
+
+            // If dragging a parent with children, move entire family
+            if (draggedImage.parentId === null && getChildImages(draggedId).length > 0) {
+                const family = getImageFamily(draggedId);
+                const familyIds = family.map(img => img.id);
+
+                // Remove family from current position
+                images = images.filter(img => !familyIds.includes(img.id));
+
+                // Find target position
+                const targetIndex = images.findIndex(img => img.id === targetId);
+                const insertIndex = insertBefore ? targetIndex : targetIndex + 1;
+
+                // Insert family at new position
+                images.splice(insertIndex, 0, ...family);
+            } else {
+                // Handle single image or child movement
+                const draggedIndex = images.findIndex(img => img.id === draggedId);
+                const targetIndex = images.findIndex(img => img.id === targetId);
+
+                const [movedImage] = images.splice(draggedIndex, 1);
+                const newTargetIndex = images.findIndex(img => img.id === targetId);
+                const insertIndex = insertBefore ? newTargetIndex : newTargetIndex + 1;
+
+                images.splice(insertIndex, 0, movedImage);
+            }
+
+            updateFilenames();
+            renderImageList();
+
+            // Let systematic approach handle ALL text updates
+            updateTextReferencesAfterReorder();
+
+            autoSave();
         }
 
         function setupTextEditor() {
@@ -1063,12 +1511,16 @@
             const text = editor.value;
             textReferences.clear();
             
-            const referencePattern = /_(0[1-9]|\d{2})/g;
+            const referencePattern = /_(0[1-9]|\d{2})([A-Za-z0-9_]*)/g;
             let match;
-            
+
             while ((match = referencePattern.exec(text)) !== null) {
                 const refNumber = parseInt(match[1]);
-                const imageAtPosition = images.find(img => img.position === refNumber);
+                const suffix = match[2] || '';
+                const imageAtPosition = images.find(img =>
+                    img.position === refNumber &&
+                    (img.suffix || '') === suffix
+                );
                 if (imageAtPosition) {
                     if (!textReferences.has(imageAtPosition.id)) {
                         textReferences.set(imageAtPosition.id, []);
@@ -1076,12 +1528,17 @@
                     textReferences.get(imageAtPosition.id).push({
                         start: match.index,
                         end: match.index + match[0].length,
-                        originalNumber: refNumber
+                        originalNumber: refNumber,
+                        suffix: suffix
                     });
                 }
             }
             
             updateTextDisplay();
+        }
+
+        function removeImageFromTextReferences(imageId) {
+            textReferences.delete(imageId);
         }
 
         function updateTextReferencesAfterReorder() {
@@ -1091,23 +1548,32 @@
             const newPositions = new Map();
             images.forEach(img => newPositions.set(img.id, img.position));
             
-            const referencePattern = /_(0[1-9]|\d{2})/g;
+            const referencePattern = /_(0[1-9]|\d{2})([A-Za-z0-9_]*)/g;
             const newText = text.replace(referencePattern, (match) => {
-                const oldNumber = parseInt(match.substring(1));
-                
+                const parts = match.match(/_(0[1-9]|\d{2})([A-Za-z0-9_]*)/);
+                const oldNumber = parseInt(parts[1]);
+
                 let targetImageId = null;
+                const suffix = parts[2] || '';
                 for (let [imageId, refs] of textReferences) {
-                    if (refs.some(ref => ref.originalNumber === oldNumber)) {
+                    if (refs.some(ref => ref.originalNumber === oldNumber && ref.suffix === suffix)) {
                         targetImageId = imageId;
                         break;
                     }
                 }
-                
-                if (targetImageId && newPositions.has(targetImageId)) {
-                    const newNumber = newPositions.get(targetImageId);
-                    return '_' + String(newNumber).padStart(2, '0');
+
+                // Skip references that aren't in the textReferences map
+                if (!targetImageId) {
+                    return match; // Leave unchanged
                 }
-                
+
+                if (newPositions.has(targetImageId)) {
+                    const targetImage = images.find(img => img.id === targetImageId);
+                    const imageSuffix = targetImage ? targetImage.suffix || '' : '';
+                    const newNumber = newPositions.get(targetImageId);
+                    return '_' + String(newNumber).padStart(2, '0') + imageSuffix;
+                }
+
                 return match;
             });
             
@@ -1125,11 +1591,16 @@
             let text = editor.value;
             
             let highlightedText = text
-                .replace(/_(0[1-9]|\d{2})/g, (match) => {
-                    const refNum = parseInt(match.substring(1));
-                    const imageExists = images.find(img => img.position === refNum);
-                    return imageExists ? 
-                        '<span class="reference">' + match + '</span>' : 
+                .replace(/_(0[1-9]|\d{2})([A-Za-z0-9_]*)/g, (match) => {
+                    const parts = match.match(/_(0[1-9]|\d{2})([A-Za-z0-9_]*)/);
+                    const refNum = parseInt(parts[1]);
+                    const suffix = parts[2] || '';
+                    const imageExists = images.find(img =>
+                        img.position === refNum &&
+                        (img.suffix || '') === suffix
+                    );
+                    return imageExists ?
+                        '<span class="reference">' + match + '</span>' :
                         '<span class="broken-reference">' + match + '</span>';
                 })
                 .replace(/!!/g, '<span class="broken-reference">!!</span>');
@@ -1398,7 +1869,9 @@
                     fileData: img.fileData, // ArrayBuffer - serializes properly
                     position: img.position,
                     filename: img.filename,
-                    thumbnailUrl: img.thumbnailUrl
+                    thumbnailUrl: img.thumbnailUrl,
+                    parentId: img.parentId,
+                    suffix: img.suffix
                 })),
                 imageCounter: imageCounter
             };
@@ -1429,7 +1902,10 @@
                     // Reconstruct File objects from ArrayBuffer data
                     images = (savedData.images || []).map(img => ({
                         ...img,
-                        file: img.fileData ? new File([img.fileData], img.fileName, {type: img.fileType}) : null
+                        file: img.fileData ? new File([img.fileData], img.fileName, {type: img.fileType}) : null,
+                        // Backward compatibility for new fields
+                        parentId: img.parentId || null,
+                        suffix: img.suffix || ""
                     }));
                     
                     imageCounter = savedData.imageCounter || 0;
