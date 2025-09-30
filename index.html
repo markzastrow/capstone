@@ -409,14 +409,6 @@
             transform: scale(1.05);
         }
 
-        .drag-target-pulse .image-thumbnail {
-            animation: thumbnailPulse 1s ease-in-out infinite;
-        }
-
-        @keyframes thumbnailPulse {
-            0%, 100% { transform: scale(1.05); }
-            50% { transform: scale(1.1); }
-        }
 
         .editor-container {
             position: relative;
@@ -1247,8 +1239,6 @@
 
         function setupImageListDragHandlers() {
             const imageList = document.getElementById('imageList');
-            let draggedOverItem = null;
-            let draggedOverTimer = null;
 
             imageList.addEventListener('dragstart', function(e) {
                 const imageItem = e.target.closest('.image-item');
@@ -1259,9 +1249,9 @@
                 e.dataTransfer.effectAllowed = 'move';
                 e.dataTransfer.setData('text/plain', imageItem.dataset.id);
 
-                // Highlight all potential drop targets (other thumbnails)
+                // Highlight only parent images as potential grouping targets
                 imageList.querySelectorAll('.image-item').forEach(item => {
-                    if (item !== draggedItem) {
+                    if (item !== draggedItem && item.dataset.isChild === 'false') {
                         item.classList.add('drag-target-highlight');
                     }
                 });
@@ -1278,9 +1268,9 @@
                 const existing = document.querySelector('.drop-indicator');
                 if (existing) existing.remove();
 
-                document.querySelectorAll('.drop-zone-parent, .drag-target-pulse').forEach(el => {
-                    if (el !== imageItem) { // Don't remove classes from current hover target
-                        el.classList.remove('drop-zone-parent', 'drag-target-pulse');
+                document.querySelectorAll('.drop-zone-parent').forEach(el => {
+                    if (el !== imageItem) {
+                        el.classList.remove('drop-zone-parent');
                     }
                 });
 
@@ -1294,72 +1284,56 @@
                 const mouseY = e.clientY;
                 const itemMiddle = rect.top + rect.height / 2;
 
+                // Only allow grouping on parent images (not children)
+                const isParentImage = imageItem.dataset.isChild === 'false';
+
                 // Check if hovering over thumbnail (for parent-child relationship)
                 const thumbnail = imageItem.querySelector('.image-thumbnail');
                 const thumbnailRect = thumbnail.getBoundingClientRect();
-                const hoveringOnThumbnail = e.clientX >= thumbnailRect.left &&
+                const hoveringOnThumbnail = isParentImage &&
+                                           e.clientX >= thumbnailRect.left &&
                                            e.clientX <= thumbnailRect.right &&
                                            e.clientY >= thumbnailRect.top &&
                                            e.clientY <= thumbnailRect.bottom;
 
                 if (hoveringOnThumbnail) {
-                    // Immediate pulse animation on hover
-                    imageItem.classList.add('drag-target-pulse');
+                    // Immediately show grouping indicator (no timer)
+                    imageItem.classList.add('drop-zone-parent');
 
-                    // Require sustained hover before showing grouping indicator
-                    if (draggedOverItem !== imageItem) {
-                        draggedOverItem = imageItem;
-                        clearTimeout(draggedOverTimer);
-                        draggedOverTimer = setTimeout(() => {
-                            if (draggedOverItem === imageItem) {
-                                console.log('Adding drop-zone-parent class to:', imageItem);
-                                imageItem.classList.remove('drag-target-pulse');
-                                imageItem.classList.add('drop-zone-parent');
-
-                                // Add actual DOM element instead of ::after
-                                let indicator = document.querySelector('.group-indicator');
-                                if (!indicator) {
-                                    const rect = imageItem.getBoundingClientRect();
-                                    indicator = document.createElement('div');
-                                    indicator.className = 'group-indicator';
-                                    indicator.innerHTML = '📎';
-                                    indicator.style.cssText = `
-                                        position: fixed;
-                                        top: ${rect.top + 8}px;
-                                        left: ${rect.right - 28}px;
-                                        width: 20px;
-                                        height: 20px;
-                                        background: rgba(0, 123, 255, 0.9);
-                                        color: white;
-                                        font-size: 12px;
-                                        font-weight: bold;
-                                        pointer-events: none;
-                                        z-index: 100000;
-                                        border-radius: 50%;
-                                        display: flex;
-                                        align-items: center;
-                                        justify-content: center;
-                                        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
-                                        border: 1px solid rgba(255, 255, 255, 0.3);
-                                        animation: groupIndicatorFade 0.3s ease-out;
-                                        opacity: 0;
-                                    `;
-                                    document.body.appendChild(indicator);
-
-                                    // Trigger animation after element is added
-                                    requestAnimationFrame(() => {
-                                        indicator.style.opacity = '1';
-                                        indicator.style.transform = 'scale(1)';
-                                    });
-                                } else {
-                                    // Update position if indicator already exists
-                                    const rect = imageItem.getBoundingClientRect();
-                                    indicator.style.top = `${rect.top + 8}px`;
-                                    indicator.style.left = `${rect.right - 28}px`;
-                                }
-                                console.log('Element classes:', imageItem.className);
-                            }
-                        }, 400); // 400ms delay for intentional grouping
+                    // Add actual DOM element for grouping indicator
+                    let indicator = document.querySelector('.group-indicator');
+                    if (!indicator) {
+                        const rect = imageItem.getBoundingClientRect();
+                        indicator = document.createElement('div');
+                        indicator.className = 'group-indicator';
+                        indicator.innerHTML = '📎';
+                        indicator.style.cssText = `
+                            position: fixed;
+                            top: ${rect.top + 8}px;
+                            left: ${rect.right - 28}px;
+                            width: 20px;
+                            height: 20px;
+                            background: rgba(0, 123, 255, 0.9);
+                            color: white;
+                            font-size: 12px;
+                            font-weight: bold;
+                            pointer-events: none;
+                            z-index: 100000;
+                            border-radius: 50%;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+                            border: 1px solid rgba(255, 255, 255, 0.3);
+                            animation: groupIndicatorFade 0.2s ease-out;
+                            opacity: 1;
+                        `;
+                        document.body.appendChild(indicator);
+                    } else {
+                        // Update position if indicator already exists
+                        const rect = imageItem.getBoundingClientRect();
+                        indicator.style.top = `${rect.top + 8}px`;
+                        indicator.style.left = `${rect.right - 28}px`;
                     }
                 } else {
                     // Show clean drop indicator for reordering
@@ -1376,8 +1350,6 @@
                             imageItem.parentNode.appendChild(indicator);
                         }
                     }
-                    draggedOverItem = null;
-                    clearTimeout(draggedOverTimer);
                 }
             });
 
@@ -1398,24 +1370,18 @@
                     return;
                 }
 
-                const rect = imageItem.getBoundingClientRect();
-                const mouseY = e.clientY;
-                const itemMiddle = rect.top + rect.height / 2;
+                // Use visual indicator as source of truth for grouping
+                const isGroupingOperation = imageItem.classList.contains('drop-zone-parent');
 
-                // Check if dropping on thumbnail (parent-child relationship)
-                const thumbnail = imageItem.querySelector('.image-thumbnail');
-                const thumbnailRect = thumbnail.getBoundingClientRect();
-                const droppedOnThumbnail = e.clientX >= thumbnailRect.left &&
-                                          e.clientX <= thumbnailRect.right &&
-                                          e.clientY >= thumbnailRect.top &&
-                                          e.clientY <= thumbnailRect.bottom;
+                console.log('Drop operation:', isGroupingOperation ? 'grouping' : 'reordering', 'from', draggedId, 'to', targetId);
 
-                console.log('Drop operation:', droppedOnThumbnail ? 'grouping' : 'reordering', 'from', draggedId, 'to', targetId);
-
-                if (droppedOnThumbnail) {
+                if (isGroupingOperation) {
                     createChildRelationship(draggedId, targetId);
                 } else {
-                    // Handle reordering logic
+                    // Handle reordering logic (including ungrouping)
+                    const rect = imageItem.getBoundingClientRect();
+                    const mouseY = e.clientY;
+                    const itemMiddle = rect.top + rect.height / 2;
                     handleImageReorder(draggedId, targetId, mouseY < itemMiddle);
                 }
             });
@@ -1427,8 +1393,8 @@
                 }
 
                 // Clean up all visual feedback
-                document.querySelectorAll('.drop-zone-parent, .drag-target-highlight, .drag-target-pulse').forEach(el => {
-                    el.classList.remove('drop-zone-parent', 'drag-target-highlight', 'drag-target-pulse');
+                document.querySelectorAll('.drop-zone-parent, .drag-target-highlight').forEach(el => {
+                    el.classList.remove('drop-zone-parent', 'drag-target-highlight');
                 });
 
                 // Remove any group indicators from body
@@ -1436,8 +1402,6 @@
                 if (indicator) indicator.remove();
 
                 draggedItem = null;
-                draggedOverItem = null;
-                clearTimeout(draggedOverTimer);
 
                 const indicators = document.querySelectorAll('.drop-indicator');
                 indicators.forEach(indicator => indicator.remove());
@@ -1450,9 +1414,14 @@
 
             if (!draggedImage || !targetImage) return;
 
-            // Check if child is being promoted (dragged out of parent group)
-            if (draggedImage.parentId !== null && targetImage.parentId === null) {
-                // Child is being dropped at parent level - promote to parent
+            // Check if child is being promoted (ungrouped)
+            // A child is being promoted if:
+            // 1. It's currently a child (has parentId)
+            // 2. AND it's being dropped in a reorder operation (drop indicator was shown, not grouping indicator)
+            // 3. This works for all cases: dropping on parents, between items, at end of list
+            if (draggedImage.parentId !== null) {
+                // Child is being reordered (not grouped), so promote to parent
+                console.log('Promoting child to parent:', draggedImage.originalName);
                 draggedImage.parentId = null;
                 draggedImage.suffix = "";  // Clear suffix when promoting to parent
             }
